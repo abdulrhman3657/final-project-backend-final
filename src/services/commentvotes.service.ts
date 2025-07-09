@@ -13,20 +13,43 @@ export const voteCommentService = async (
   vote: number,
   userId: string,
 ) => {
-  if (![1, -1, 0].includes(vote)) {
+  const voteValue = Number(vote);
+
+  if (![1, -1, 0].includes(voteValue)) {
     throw new AppError("Invalid vote value", BAD_REQUEST);
   }
 
-  const existingVote = await CommentVoteCollection.findOne({ userId, commentId });
+  const existingVote = await CommentVoteCollection.findOne({
+    userId,
+    commentId,
+  });
 
   const comment = await getIcommentByIdService(commentId);
   const user = await getOneUserService(comment.userId.toString());
 
-  if (vote === 0) {
-    if (!existingVote) {
+  if (existingVote) {
+    if (voteValue === 0 || existingVote.vote === voteValue) {
+      await CommentVoteCollection.deleteOne({ _id: existingVote._id });
+
+      if (existingVote.vote === 1) {
+        await updateUserScoreService(comment.userId.toString(), {
+          score: Number(user?.score) - 1,
+        });
+        await updateCommentVoteService(commentId, {
+          totalUpvotes: comment.totalUpvotes - 1,
+        });
+      } else {
+        await updateUserScoreService(comment.userId.toString(), {
+          score: Number(user?.score) + 1,
+        });
+        await updateCommentVoteService(commentId, {
+          totalDownvotes: comment.totalDownvotes - 1,
+        });
+      }
+
       const updatedComment = await getIcommentByIdService(commentId);
       return {
-        message: "no vote to remove",
+        message: "vote removed",
         totalVotes: {
           totalUpvotes: updatedComment.totalUpvotes,
           totalDownvotes: updatedComment.totalDownvotes,
@@ -34,43 +57,69 @@ export const voteCommentService = async (
       };
     }
 
-    await CommentVoteCollection.deleteOne({ userId, commentId });
+    if (voteValue === 1) {
+      await updateUserScoreService(comment.userId.toString(), {
+        score: Number(user?.score) + 2,
+      });
+      await updateCommentVoteService(commentId, {
+        totalUpvotes: comment.totalUpvotes + 1,
+        totalDownvotes: comment.totalDownvotes - 1,
+      });
+    } else {
+      await updateUserScoreService(comment.userId.toString(), {
+        score: Number(user?.score) - 2,
+      });
+      await updateCommentVoteService(commentId, {
+        totalUpvotes: comment.totalUpvotes - 1,
+        totalDownvotes: comment.totalDownvotes + 1,
+      });
+    }
 
-    const inc = existingVote.vote === 1 ? { totalUpvotes: -1 } : { totalDownvotes: -1 };
-    await updateCommentVoteService(commentId, { $inc: inc });
+    existingVote.vote = voteValue;
+    await existingVote.save();
 
-    const scoreDelta = existingVote.vote === 1 ? -1 : 1;
-    await updateUserScoreService(comment.userId.toString(), { score: Number(user?.score) + scoreDelta });
-
-  } else if (!existingVote) {
-    await CommentVoteCollection.create({ commentId, ideaId, vote, userId });
-
-    const inc = vote === 1 ? { totalUpvotes: 1 } : { totalDownvotes: 1 };
-    await updateCommentVoteService(commentId, { $inc: inc });
-
-    const scoreDelta = vote === 1 ? 1 : -1;
-    await updateUserScoreService(comment.userId.toString(), { score: Number(user?.score) + scoreDelta });
-
-  } else if (existingVote.vote !== vote) {
-    await CommentVoteCollection.updateOne({ userId, commentId }, { vote });
-
-    const voteChange = vote === 1
-      ? { totalUpvotes: 1, totalDownvotes: -1 }
-      : { totalUpvotes: -1, totalDownvotes: 1 };
-    await updateCommentVoteService(commentId, { $inc: voteChange });
-
-    const scoreDelta = vote === 1 ? 2 : -2;
-    await updateUserScoreService(comment.userId.toString(), { score: Number(user?.score) + scoreDelta });
-
-  } else {
     const updatedComment = await getIcommentByIdService(commentId);
     return {
-      message: "vote unchanged",
+      message: "vote updated",
       totalVotes: {
         totalUpvotes: updatedComment.totalUpvotes,
         totalDownvotes: updatedComment.totalDownvotes,
       },
     };
+  }
+
+  if (voteValue === 0) {
+    const updatedComment = await getIcommentByIdService(commentId);
+    return {
+      message: "no vote to remove",
+      totalVotes: {
+        totalUpvotes: updatedComment.totalUpvotes,
+        totalDownvotes: updatedComment.totalDownvotes,
+      },
+    };
+  }
+
+  await CommentVoteCollection.create({
+    commentId,
+    ideaId,
+    vote: voteValue,
+    userId,
+  });
+
+  if (voteValue === 1) {
+    await updateUserScoreService(comment.userId.toString(), {
+      score: Number(user?.score) + 1,
+    });
+    await updateCommentVoteService(commentId, {
+      totalUpvotes: comment.totalUpvotes + 1,
+    });
+  } else {
+    await updateUserScoreService(comment.userId.toString(), {
+      score: Number(user?.score) - 1,
+    });
+    await updateCommentVoteService(commentId, {
+      totalDownvotes: comment.totalDownvotes + 1,
+    });
   }
 
   const updatedComment = await getIcommentByIdService(commentId);
