@@ -11,9 +11,9 @@ export const voteCommentService = async (
   commentId: string,
   ideaId: string,
   vote: number,
-  userId: string
+  userId: string,
 ) => {
-  if (![1, -1].includes(vote)) {
+  if (![1, -1, 0].includes(vote)) {
     throw new AppError("Invalid vote value", BAD_REQUEST);
   }
 
@@ -26,12 +26,32 @@ export const voteCommentService = async (
   const user = await getOneUserService(comment.userId.toString());
 
   if (existingVote) {
-    // If vote is same, block
-    if (existingVote.vote === vote) {
-      throw new AppError("Already voted with same value", BAD_REQUEST);
+    if (vote === 0 || existingVote.vote === vote) {
+      await CommentVoteCollection.deleteOne({ _id: existingVote._id });
+      if (existingVote.vote === 1) {
+        await updateUserScoreService(comment.userId.toString(), {
+          score: Number(user?.score) - 1,
+        });
+        await updateCommentVoteService(commentId, {
+          totalUpvotes: comment.totalUpvotes - 1,
+        });
+      } else {
+        await updateUserScoreService(comment.userId.toString(), {
+          score: Number(user?.score) + 1,
+        });
+        await updateCommentVoteService(commentId, {
+          totalDownvotes: comment.totalDownvotes - 1,
+        });
+      }
+
+      const updatedComment = await getIcommentByIdService(commentId);
+      return {
+        vote: 0,
+        upvotes: updatedComment.totalUpvotes,
+        downvotes: updatedComment.totalDownvotes,
+      };
     }
 
-    // If changing vote, update score and vote
     if (vote === 1) {
       await updateUserScoreService(comment.userId.toString(), {
         score: Number(user?.score) + 2,
@@ -56,6 +76,15 @@ export const voteCommentService = async (
     const updatedComment = await getIcommentByIdService(commentId);
     return {
       vote,
+      upvotes: updatedComment.totalUpvotes,
+      downvotes: updatedComment.totalDownvotes,
+    };
+  }
+
+  if (vote === 0) {
+    const updatedComment = await getIcommentByIdService(commentId);
+    return {
+      vote: 0,
       upvotes: updatedComment.totalUpvotes,
       downvotes: updatedComment.totalDownvotes,
     };
@@ -92,7 +121,6 @@ export const voteCommentService = async (
     downvotes: updatedComment.totalDownvotes,
   };
 };
-
 
 export const getCommentVotesService = async (commentId: string) => {
   const commentVotes = await CommentVoteCollection.find({
