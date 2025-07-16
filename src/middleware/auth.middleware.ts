@@ -18,11 +18,9 @@ export const authorized = async (req: AuthRequest, res: Response, next: NextFunc
     const authHeader = req.headers.authorization;
     let token: string | undefined;
 
-    // Tries to retrieve the token from either the Authorization header (standard "Bearer <token>") or cookies (accessToken cookie)
+    // Retrieve the token from the Authorization header ("Bearer <token>")
     if (authHeader && authHeader.startsWith("Bearer ")) {
       token = authHeader.split(" ")[1];
-    } else if (req.cookies?.accessToken) {
-      token = req.cookies.accessToken;
     }
 
     // Throws a 401 error if no token is found

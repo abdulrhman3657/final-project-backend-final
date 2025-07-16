@@ -1,27 +1,8 @@
-import { Request, Response, NextFunction, CookieOptions } from "express";
+import { Request, Response, NextFunction } from "express";
 import * as AuthService from "../services/auth.service";
 import { AppError } from "../utils/error";
 import { AuthRequest } from "../middleware/auth.middleware";
 import { CREATED, OK } from "../utils/http-status";
-import { dev } from "../utils/helpers";
-
-// Define consistent cookie options for tokens
-const baseCookieOpts: CookieOptions = {
-  httpOnly: true,
-  secure: !dev,
-  sameSite: dev ? "lax" : "none",
-  path: "/",
-};
-
-const longLivedCookieOpts = {
-  ...baseCookieOpts,
-  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-};
-
-const shortLivedCookieOpts = {
-  ...baseCookieOpts,
-  maxAge: 15 * 60 * 1000, // 15 minutes
-};
 
 // SIGN UP
 const signUp = async (req: Request, res: Response, next: NextFunction) => {
@@ -38,9 +19,9 @@ const signUp = async (req: Request, res: Response, next: NextFunction) => {
       city,
     });
 
-    // Set cookies
-    res.cookie("accessToken", accessToken, longLivedCookieOpts);
-    res.cookie("refreshToken", refreshToken, longLivedCookieOpts);
+    // Send tokens in headers
+    res.setHeader("Authorization", `Bearer ${accessToken}`);
+    res.setHeader("X-Refresh-Token", refreshToken);
 
     res.status(CREATED).json({
       status: "success",
@@ -77,9 +58,9 @@ const signIn = async (req: Request, res: Response, next: NextFunction) => {
       password
     );
 
-    // Set cookies
-    res.cookie("accessToken", accessToken, longLivedCookieOpts);
-    res.cookie("refreshToken", refreshToken, longLivedCookieOpts);
+    // Send tokens in headers
+    res.setHeader("Authorization", `Bearer ${accessToken}`);
+    res.setHeader("X-Refresh-Token", refreshToken);
 
     res.status(OK).json({
       status: "success",
@@ -108,10 +89,6 @@ const signIn = async (req: Request, res: Response, next: NextFunction) => {
 
 // SIGN OUT
 const signOut = async (req: Request, res: Response) => {
-  // Clear cookies by setting expiration in the past
-  res.cookie("accessToken", "", { expires: new Date(0), ...longLivedCookieOpts });
-  res.cookie("refreshToken", "", { expires: new Date(0), ...longLivedCookieOpts });
-
   res.status(OK).json({
     status: "success",
     message: "Signed out successfully",
@@ -125,14 +102,18 @@ const refreshToken = async (
   next: NextFunction
 ) => {
   try {
-    const token = req.cookies.refreshToken || req.body.refreshToken;
+    const headerToken =
+      typeof req.headers["x-refresh-token"] === "string"
+        ? (req.headers["x-refresh-token"] as string)
+        : undefined;
+    const token = headerToken || req.body.refreshToken;
     if (!token) throw new AppError("Refresh token not provided", 401);
 
     const tokens = await AuthService.refreshToken(token);
 
-    // Set new cookies
-    res.cookie("accessToken", tokens.accessToken, longLivedCookieOpts);
-    res.cookie("refreshToken", tokens.refreshToken, longLivedCookieOpts);
+    // Send new tokens in headers
+    res.setHeader("Authorization", `Bearer ${tokens.accessToken}`);
+    res.setHeader("X-Refresh-Token", tokens.refreshToken);
 
     res.status(OK).json({
       status: "success",
@@ -151,10 +132,6 @@ const deleteAccount = async (
 ) => {
   try {
     await AuthService.deleteAccount(req.user.id);
-
-    // Clear cookies
-    res.cookie("accessToken", "", { expires: new Date(0), ...longLivedCookieOpts });
-    res.cookie("refreshToken", "", { expires: new Date(0), ...longLivedCookieOpts });
 
     res.status(OK).json({
       status: "success",
